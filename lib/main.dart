@@ -1,11 +1,10 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'models/task.dart';
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'models/task.dart'; // Make sure your Task class is defined with toJson/fromJson
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -15,244 +14,296 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Task Easee',
-      themeMode: ThemeMode.system,
+      debugShowCheckedModeBanner: false,
       theme: ThemeData.light(),
       darkTheme: ThemeData.dark(),
-      home: Scaffold(
-        appBar: AppBar(
-          title: Text('Task Easee'),
-        ),
-        body: TaskList(),
-    ),
-    ); 
+      themeMode: ThemeMode.system,
+      home: const LaunchDecider(),
+    );
   }
 }
 
-class TaskList extends StatefulWidget {
-  const TaskList({super.key});
+class LaunchDecider extends StatelessWidget {
+  const LaunchDecider({super.key});
+
+  Future<bool> hasTasks() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String>? storedTasks = prefs.getStringList('tasks');
+    return storedTasks != null && storedTasks.isNotEmpty;
+  }
 
   @override
-  State<TaskList> createState() => _TaskListState();
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: hasTasks(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // While checking SharedPreferences
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        } else if (snapshot.hasData && snapshot.data == true) {
+          // Tasks exist → Go to TaskPage
+          return const TaskPage();
+        } else {
+          // No tasks → Go to HomePage
+          return const HomePage();
+        }
+      },
+    );
+  }
 }
 
-class _TaskListState extends State<TaskList> {
-  List<Task> tasks = [];
+
+// HOME SCREEN
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.deepPurple[50],
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('Welcome to',
+                style: TextStyle(fontSize: 22, color: Colors.black87)),
+            const Text('Task Easee',
+                style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple)),
+            const SizedBox(height: 30),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => const TaskPage()));
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              child: const Text('Get Started',
+                  style: TextStyle(fontSize: 18, color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// TASK PAGE
+class TaskPage extends StatefulWidget {
+  const TaskPage({super.key});
+
+  @override
+  State<TaskPage> createState() => _TaskPageState();
+}
+
+class _TaskPageState extends State<TaskPage> {
+  List<Task> _tasks = [];
   final TextEditingController _controller = TextEditingController();
+  int _selectedPriority = 2;
 
   @override
   void initState() {
     super.initState();
-    loadTasks();
+    _loadTasks();
   }
 
-  void saveTasks() async {
+  Future<void> _loadTasks() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> taskList =
-        tasks.map((task) => json.encode(task.toMap())).toList();
-    await prefs.setStringList('tasks', taskList);
-    print('saving tasks:${taskList.length}');
-  }
-
-  void loadTasks() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String>? taskList = prefs.getStringList('tasks');
-    if (taskList != null) {
-      print('loading tasks:${taskList.length}');
+    List<String>? storedTasks = prefs.getStringList('tasks');
+    if (storedTasks != null) {
       setState(() {
-        tasks = taskList
-            .map((taskString) => Task.fromMap(json.decode(taskString)))
+        _tasks = storedTasks
+            .map((taskStr) => Task.fromJson(json.decode(taskStr)))
             .toList();
-
-            tasks.sort((a, b)=> a.priority.compareTo(b.priority));
       });
     }
-    else {
-    print('⚠️ No tasks found in SharedPreferences');
-  }
-    
-
   }
 
-  void addTask(String title, {int priority = 2}) {
+  Future<void> _saveTasks() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> taskStrings =
+        _tasks.map((task) => json.encode(task.toJson())).toList();
+    await prefs.setStringList('tasks', taskStrings);
+  }
+
+  void _addTask(String title, int priority) {
     setState(() {
-      tasks.add(Task(title: title, priority: priority));
-      tasks.sort((a, b) => a.priority.compareTo(b.priority));
-      _controller.clear();
+      _tasks.add(Task(title: title, isDone: false, priority: priority));
     });
-    saveTasks();
+    _saveTasks();
   }
 
-  void toggleTask(int index) {
+  void _toggleDone(int index) {
     setState(() {
-      tasks[index].isDone = !tasks[index].isDone;
+      _tasks[index].isDone = !_tasks[index].isDone;
     });
-    saveTasks();
+    _saveTasks();
   }
 
-  void deleteTask(int index) {
+  void _deleteTask(int index) {
     setState(() {
-      tasks.removeAt(index);
+      _tasks.removeAt(index);
     });
-    saveTasks();
+    _saveTasks();
+  }
+
+  void _showEditDialog(int index) {
+    _controller.text = _tasks[index].title;
+    _selectedPriority = _tasks[index].priority;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Task'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _controller,
+              decoration: const InputDecoration(labelText: 'Task'),
+            ),
+            const SizedBox(height: 10),
+            DropdownButton<int>(
+              value: _selectedPriority,
+              items: const [
+                DropdownMenuItem(value: 1, child: Text('High')),
+                DropdownMenuItem(value: 2, child: Text('Medium')),
+                DropdownMenuItem(value: 3, child: Text('Low')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedPriority = value!;
+                });
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _tasks[index].title = _controller.text;
+                _tasks[index].priority = _selectedPriority;
+              });
+              _saveTasks();
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddDialog() {
+    _controller.clear();
+    _selectedPriority = 2;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Task'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _controller,
+              decoration: const InputDecoration(labelText: 'Task'),
+            ),
+            const SizedBox(height: 10),
+            DropdownButton<int>(
+              value: _selectedPriority,
+              items: const [
+                DropdownMenuItem(value: 1, child: Text('High')),
+                DropdownMenuItem(value: 2, child: Text('Medium')),
+                DropdownMenuItem(value: 3, child: Text('Low')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedPriority = value!;
+                });
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              if (_controller.text.trim().isNotEmpty) {
+                _addTask(_controller.text.trim(), _selectedPriority);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
-  int _selectedPriority = 2;
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  decoration: InputDecoration(
-                    labelText: 'Add a new task',
-                    hintText: 'e.g., Buy groceries',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+    _tasks.sort((a, b) => a.priority.compareTo(b.priority)); // Sort by priority
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Task Easee'),
+        backgroundColor: Colors.deepPurple,
+      ),
+      body: _tasks.isEmpty
+          ? const Center(child: Text('No tasks found'))
+          : ListView.builder(
+              itemCount: _tasks.length,
+              itemBuilder: (context, index) {
+                final task = _tasks[index];
+                return Card(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: ListTile(
+                    title: Text(
+                      task.title,
+                      style: TextStyle(
+                          decoration: task.isDone
+                              ? TextDecoration.lineThrough
+                              : TextDecoration.none),
                     ),
+                    subtitle: Text(
+                      task.priority == 1
+                          ? 'High Priority'
+                          : task.priority == 2
+                              ? 'Medium Priority'
+                              : 'Low Priority',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    leading: Checkbox(
+                      value: task.isDone,
+                      onChanged: (_) => _toggleDone(index),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete),
+                      onPressed: () => _deleteTask(index),
+                    ),
+                    onLongPress: () => _showEditDialog(index),
                   ),
-                  onSubmitted: (value) {
-                    if (value.trim().isNotEmpty) {
-                      addTask(value.trim(), priority: _selectedPriority);
-                    }
-                  },
-                ),
-              ),
-              SizedBox(width: 10),
-              DropdownButton<int>(
-                value: _selectedPriority,
-                items: [
-                  DropdownMenuItem(value: 1, child: Text('High')),
-                  DropdownMenuItem(value: 2, child: Text('Medium')),
-                  DropdownMenuItem(value: 3, child: Text('Low')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _selectedPriority = value;
-                    });
-                  }
-                },
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  if (_controller.text.trim().isNotEmpty) {
-                    addTask(_controller.text.trim(), priority: _selectedPriority);
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
-                ),
-                child: Text('Add'),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: tasks.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.hourglass_empty,
-                          size: 64, color: Colors.grey[400]),
-                      SizedBox(height: 10),
-                      Text(
-                        'No tasks available.',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: tasks.length,
-                  itemBuilder: (context, index) {
-                    final task = tasks[index];
-                    return Card(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 4.0,
-                      margin:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        title: Text(
-                          task.title,
-                          style: TextStyle(
-                            fontSize: 18,
-                            decoration: task.isDone
-                                ? TextDecoration.lineThrough
-                                : null,
-                          ),
-                        ),
-
-                        subtitle: Text(
-                          task.priority == 1
-                              ? 'High Priority'
-                              : task.priority == 2
-                                  ? 'Medium Priority'
-                                  : 'Low Priority',
-                          style: TextStyle(color:Colors.teal),
-                        ),
-                        leading: Checkbox(
-                          value: task.isDone,
-                          activeColor: Colors.teal,
-                          onChanged: (_) => toggleTask(index),
-                        ),
-                        trailing: IconButton(
-                          icon: Icon(Icons.delete, color: Colors.redAccent),
-                          onPressed: () => deleteTask(index),
-                        ),
-
-                        onLongPress: (){
-                          TextEditingController editController = TextEditingController(text: task.title);
-                          showDialog(
-                            context: context,
-                            builder: (context) {
-                              return AlertDialog(
-                                title: Text('Edit Task'),
-                                content: TextField(
-                                  controller: editController,
-                                  autofocus: true,
-                                  decoration: InputDecoration(
-                                    hintText: 'update task title',
-                                  ),
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: Text('cancel'),
-                                  ),
-                                  ElevatedButton(onPressed: (){
-                                    if(editController.text.trim().isNotEmpty){
-                                      setState(() {
-                                        tasks[index].title = editController.text.trim();
-                                      });
-                                      saveTasks();
-                                      Navigator.pop(context);
-                                    }
-                                  }, child: Text('save')),  
-                          
-                                ],
-                              );
-                            },
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.deepPurple,
+        onPressed: _showAddDialog,
+        child: const Icon(Icons.add),
+      ),
     );
   }
 }

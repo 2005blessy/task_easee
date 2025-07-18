@@ -5,16 +5,20 @@ class Task {
 
   Task({required this.title, this.isDone = false, this.priority = 2});
 
-  Map<String, dynamic> toMap() => {
+  Map<String, dynamic> toJson() {
+    return {
         'title': title,
         'isDone': isDone,
         'priority': priority,
       };
+  }  
 
-  factory Task.fromMap(Map<String, dynamic> map) => Task(
-        title: map['title'],
-        isDone: map['isDone'],
-        priority: map['priority'] ?? 2,
+  factory Task.fromJson(Map<String, dynamic> map) {
+    return Task(
+        title: map['title'] ,
+        isDone: map['isDone'] ,
+        priority: map['priority'],
       );
-}
+  }
+} 
 
